@@ -1889,6 +1889,10 @@ PyObject *igraphmodule_Graph_radius(igraphmodule_GraphObject * self,
   return igraphmodule_real_t_to_PyObject(radius, IGRAPHMODULE_TYPE_FLOAT_IF_FRACTIONAL_ELSE_INT);
 }
 
+
+
+
+
 /** \ingroup python_interface_graph
  * \brief Converts a tree graph into a Prufer sequence
  * \return the Prufer sequence as a Python object
@@ -3856,6 +3860,37 @@ PyObject *igraphmodule_Graph_average_path_length(igraphmodule_GraphObject *
       igraphmodule_handle_igraph_error();
       return NULL;
     }
+  }
+
+  return PyFloat_FromDouble(res);
+}
+
+
+
+PyObject *igraphmodule_Graph_global_efficiency(igraphmodule_GraphObject *
+                                                 self, PyObject * args,
+                                                 PyObject * kwds)
+{
+  static char *kwlist[] = { "directed", "weights"};
+  PyObject *weights_o = Py_None;
+  PyObject *directed = Py_True;
+  igraph_real_t res;
+  igraph_vector_t *weights = 0;
+
+  if (!PyArg_ParseTupleAndKeywords(args, kwds, "|OO", kwlist, &directed, &weights_o))
+    return NULL;
+
+  if (igraphmodule_attrib_to_vector_t(weights_o, self, &weights,
+      ATTRIBUTE_TYPE_EDGE)) return NULL;
+
+  if (weights) {
+    if (igraph_global_efficiency(&self->g, &res, weights, PyObject_IsTrue(directed))) {
+      igraph_vector_destroy(weights); free(weights);
+      igraphmodule_handle_igraph_error();
+      return NULL;
+    }
+
+    igraph_vector_destroy(weights); free(weights);
   }
 
   return PyFloat_FromDouble(res);
@@ -14166,6 +14201,19 @@ struct PyMethodDef igraphmodule_Graph_methods[] = {
    "@param weights: edge weights to be used. Can be a sequence or iterable or\n"
    "  even an edge attribute name.\n"
    "@return: the average path length in the graph\n"},
+   
+   
+  /* interface to igraph_global_efficiency */
+  {"global_efficiency",
+   (PyCFunction) igraphmodule_Graph_global_efficiency,
+   METH_VARARGS | METH_KEYWORDS,
+   "average_path_length(directed=True, weights=None)\n--\n\n"
+   "Calculates the global efficiency a graph.\n\n"
+   "@param directed: whether to consider directed paths in case of a\n"
+   "  directed graph. Ignored for undirected graphs.\n"
+   "@param weights: edge weights to be used. Can be a sequence or iterable or\n"
+   "  even an edge attribute name.\n"
+   "@return: the global efficiency in the graph\n"},   
 
   /* interface to igraph_authority_score */
   {"authority_score", (PyCFunction)igraphmodule_Graph_authority_score,
@@ -15070,7 +15118,7 @@ struct PyMethodDef igraphmodule_Graph_methods[] = {
    "@return: the radius\n"
    "@see: L{eccentricity()}"
   },
-
+  
   /* interface to igraph_reciprocity */
   {"reciprocity", (PyCFunction) igraphmodule_Graph_reciprocity,
    METH_VARARGS | METH_KEYWORDS,
