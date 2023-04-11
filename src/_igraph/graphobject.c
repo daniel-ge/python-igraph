@@ -3866,35 +3866,118 @@ PyObject *igraphmodule_Graph_average_path_length(igraphmodule_GraphObject *
 }
 
 
-
+/** \ingroup python_interface_graph
+ * \brief Calculates the global efficiency in a graph.
+ * \return the global efficiency in a graph.as a PyObject
+ * \sa igraph_global_efficiency
+ */
 PyObject *igraphmodule_Graph_global_efficiency(igraphmodule_GraphObject *
                                                  self, PyObject * args,
                                                  PyObject * kwds)
 {
-  static char *kwlist[] = { "directed", "weights"};
+  static char *kwlist[] = { "directed", "weights", NULL};
   PyObject *weights_o = Py_None;
   PyObject *directed = Py_True;
   igraph_real_t res;
-  igraph_vector_t *weights = 0;
+  
+  igraph_vector_t *weights;
+  weights = (igraph_vector_t *)calloc(1, sizeof(igraph_vector_t));
+  igraph_vector_init(weights, 0); // Initialize with size 0, as we don't know the size yet.  
 
   if (!PyArg_ParseTupleAndKeywords(args, kwds, "|OO", kwlist, &directed, &weights_o))
     return NULL;
-
-  if (igraphmodule_attrib_to_vector_t(weights_o, self, &weights,
-      ATTRIBUTE_TYPE_EDGE)) return NULL;
-
-  if (weights) {
-    if (igraph_global_efficiency(&self->g, &res, weights, PyObject_IsTrue(directed))) {
-      igraph_vector_destroy(weights); free(weights);
-      igraphmodule_handle_igraph_error();
-      return NULL;
-    }
-
+  
+  if (igraphmodule_PyObject_to_attribute_values(weights_o, weights, self, 
+      ATTRIBUTE_TYPE_EDGE, 1.0)) return NULL;
+  
+  if (igraph_global_efficiency(&self->g, &res, weights, PyObject_IsTrue(directed))) {
     igraph_vector_destroy(weights); free(weights);
+    igraphmodule_handle_igraph_error();
+    return NULL;
+
   }
 
+  igraph_vector_destroy(weights); free(weights);
   return PyFloat_FromDouble(res);
 }
+
+
+/** \ingroup python_interface_graph
+ * \brief The local efficiency of some vertices in a weighted \c igraph.Graph
+ * \return the local efficiency list as a Python object
+ * \sa igraph_local_efficiency
+ */
+PyObject *igraphmodule_Graph_local_efficiency(igraphmodule_GraphObject *self,
+                                              PyObject *args, PyObject *kwds) {
+  PyObject *vertices = Py_None;
+  PyObject *weights_o = Py_None;
+  PyObject *directed_o = Py_True;
+  PyObject *dmode_o = Py_None;
+  igraph_neimode_t dmode = IGRAPH_ALL;
+  igraph_vector_t res;
+  igraph_vs_t vs;
+  igraph_bool_t return_single = false;
+  
+  igraph_vector_t *weights;
+  weights = (igraph_vector_t *)calloc(1, sizeof(igraph_vector_t));
+  igraph_vector_init(weights, 0); // Initialize with size 0, as we don't know the size yet.  
+
+  static char *kwlist[] = {"vertices", "weights", "directed", "mode", NULL};
+
+  if (!PyArg_ParseTupleAndKeywords(args, kwds, "|OOOO", kwlist,
+                                   &vertices, &weights_o, &directed_o, &dmode_o))
+    return NULL;
+
+  if (igraphmodule_PyObject_to_neimode_t(dmode_o, &dmode)) {
+    return NULL;
+  }
+
+  if (igraphmodule_PyObject_to_vs_t(vertices, &vs, &self->g, &return_single, 0)) {
+    return NULL;
+  }
+
+  //if (igraphmodule_PyObject_to_vector_t(weights_o, &weights, 0)) {
+  //  igraph_vs_destroy(&vs);
+  //  return NULL;
+  //}
+  
+  if (igraphmodule_PyObject_to_attribute_values(weights_o, weights, self, 
+    ATTRIBUTE_TYPE_EDGE, 1.0)) {
+    igraph_vs_destroy(&vs);
+    igraph_vector_destroy(weights); free(weights);
+    return NULL;  
+          
+  } 
+
+  if (igraph_vector_init(&res, 0)) {
+    igraph_vs_destroy(&vs);
+    igraph_vector_destroy(weights); free(weights);
+    return NULL;
+  }
+
+  if (igraph_local_efficiency(&self->g, &res, vs, weights,
+                              PyObject_IsTrue(directed_o), dmode)) {
+    igraphmodule_handle_igraph_error();
+    igraph_vs_destroy(&vs);
+    igraph_vector_destroy(&res);
+    igraph_vector_destroy(weights); free(weights);
+    return NULL;
+  }
+
+  PyObject *result;
+  if (!return_single) {
+    result = igraphmodule_vector_t_to_PyList(&res, IGRAPHMODULE_TYPE_FLOAT);
+  } else {
+    result = igraphmodule_real_t_to_PyObject(VECTOR(res)[0], IGRAPHMODULE_TYPE_FLOAT);
+  }
+
+  igraph_vector_destroy(&res);
+  igraph_vs_destroy(&vs);
+  igraph_vector_destroy(weights); free(weights);
+
+  return result;
+}
+
 
 /** \ingroup python_interface_graph
  * \brief Calculates the betweennesses of some vertices in a graph.
@@ -14207,13 +14290,29 @@ struct PyMethodDef igraphmodule_Graph_methods[] = {
   {"global_efficiency",
    (PyCFunction) igraphmodule_Graph_global_efficiency,
    METH_VARARGS | METH_KEYWORDS,
-   "average_path_length(directed=True, weights=None)\n--\n\n"
+   "global_efficiency(directed=True, weights=None)\n--\n\n"
    "Calculates the global efficiency a graph.\n\n"
    "@param directed: whether to consider directed paths in case of a\n"
    "  directed graph. Ignored for undirected graphs.\n"
    "@param weights: edge weights to be used. Can be a sequence or iterable or\n"
    "  even an edge attribute name.\n"
    "@return: the global efficiency in the graph\n"},   
+   
+  /* interface to igraph_local_efficiency */ 
+    {"local_efficiency", (PyCFunction) igraphmodule_Graph_local_efficiency,
+    METH_VARARGS | METH_KEYWORDS,
+    "local_efficiency(vertices=None, weights=None, directed=True, mode=\"all\")\n--\n\n"
+    "Returns local efficiency values for the given vertices in a weighted graph.\n\n"
+    "This method accepts a single vertex ID or a list of vertex IDs as a\n"
+    "parameter, and returns the local efficiency of the given vertices (in the\n"
+    "form of a single float or a list of floats, depending on the input\n"
+    "parameter).\n"
+    "\n"
+    "@param vertices: a single vertex ID or a list of vertex IDs (optional, default is all vertices)\n"
+    "@param weights: a list of edge weights corresponding to the edges in the graph\n"
+    "@param directed: whether the graph should be considered directed (default is True)\n"
+    "@param mode: the type of neighbors to be considered (C{\"out\"} for\n"
+    "  out-neighbors, C{\"in\"} for in-neighbors or C{\"all\"} for both).\n"},     
 
   /* interface to igraph_authority_score */
   {"authority_score", (PyCFunction)igraphmodule_Graph_authority_score,
