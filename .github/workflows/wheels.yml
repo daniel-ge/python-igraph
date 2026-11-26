@@ -1,0 +1,54 @@
+name: Build wheels and publish GitHub release
+
+# - Pull requests / manual runs: build the wheels and keep them as workflow artifacts.
+# - Pushing a tag like "v0.10.4-efficiency.1": build the wheels and attach them to a
+#   GitHub release for that tag.
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build_wheels:
+    name: Build wheels (Linux x86_64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+          fetch-depth: 0
+
+      - name: Build wheels
+        uses: pypa/cibuildwheel@v2.23.3
+        env:
+          CIBW_BUILD: "cp39-manylinux_x86_64 cp310-manylinux_x86_64 cp311-manylinux_x86_64 cp312-manylinux_x86_64 cp313-manylinux_x86_64"
+          CIBW_BEFORE_BUILD: "yum install -y flex bison libxml2-devel zlib-devel && pip install -U 'cmake<4' pip wheel setuptools && python setup.py build_c_core"
+          # Smoke test: the wheel imports and the methods added in this fork work.
+          CIBW_TEST_COMMAND: >-
+            python -c "import igraph as ig; g = ig.Graph.Famous('Zachary');
+            print('global', g.global_efficiency());
+            print('local', g.local_efficiency()[:3])"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-linux-x86_64
+          path: ./wheelhouse/*.whl
+
+  release:
+    name: Attach wheels to GitHub release
+    needs: build_wheels
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.whl
+          generate_release_notes: true
